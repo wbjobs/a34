@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>隐式方程三维曲面 & 参数探针</title>
+<title>隐式曲面探索器 · 静态 & 演化</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   :root {
@@ -15,7 +15,7 @@
   body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--fg); height: 100vh; overflow: hidden; display: flex; }
 
   .sidebar {
-    width: 360px; min-width: 360px; background: var(--panel);
+    width: 380px; min-width: 380px; background: var(--panel);
     border-right: 1px solid var(--border); display: flex; flex-direction: column;
     overflow-y: auto; z-index: 10;
   }
@@ -23,53 +23,85 @@
   .sidebar::-webkit-scrollbar-track { background: transparent; }
   .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-  .logo { padding: 20px 24px; border-bottom: 1px solid var(--border); }
-  .logo h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
-  .logo p { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .logo { padding: 18px 24px; border-bottom: 1px solid var(--border); }
+  .logo h1 { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
+  .logo p { font-size: 11px; color: var(--muted); margin-top: 3px; }
 
-  .section { padding: 16px 24px; border-bottom: 1px solid var(--border); }
-  .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 12px; }
+  .mode-tabs {
+    display: flex; background: var(--bg); margin: 12px 24px 0; border-radius: 8px;
+    overflow: hidden; border: 1px solid var(--border);
+  }
+  .mode-tab {
+    flex: 1; padding: 8px; text-align: center; font-size: 12px; font-weight: 600;
+    cursor: pointer; color: var(--muted); transition: all 0.15s;
+  }
+  .mode-tab.active {
+    background: var(--accent); color: #fff;
+  }
+  .mode-tab:hover:not(.active) { color: var(--fg); }
 
-  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .section { padding: 14px 24px; border-bottom: 1px solid var(--border); }
+  .section-title {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.8px; color: var(--muted); margin-bottom: 10px;
+  }
+
+  .panel-hidden { display: none; }
+
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  label.small { font-size: 11px; margin-bottom: 3px; }
+
   input[type="text"], input[type="number"] {
-    width: 100%; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border);
-    border-radius: 6px; color: var(--fg); font-size: 14px; font-family: 'Consolas', 'Courier New', monospace;
+    width: 100%; padding: 7px 10px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--fg); font-size: 13px;
+    font-family: 'Consolas', 'Courier New', monospace;
     outline: none; transition: border-color 0.2s;
   }
   input[type="text"]:focus, input[type="number"]:focus { border-color: var(--accent); }
+  input.eq-evolve { font-size: 12px; padding: 6px 10px; }
+  input.eq-evolve.eq2 { border-color: var(--accent2); }
+  input.eq-evolve.eq2:focus { border-color: var(--warn); }
 
-  .range-row { display: flex; gap: 8px; }
+  .range-row { display: flex; gap: 6px; }
   .range-row > div { flex: 1; }
 
   .btn {
-    width: 100%; padding: 10px; border: none; border-radius: 6px; font-size: 14px;
-    font-weight: 600; cursor: pointer; transition: all 0.2s; margin-top: 8px;
+    width: 100%; padding: 9px; border: none; border-radius: 6px; font-size: 13px;
+    font-weight: 600; cursor: pointer; transition: all 0.2s; margin-top: 6px;
   }
   .btn-primary { background: var(--accent); color: #fff; }
   .btn-primary:hover { background: #79c0ff; }
   .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-warn { background: var(--accent2); color: #000; }
+  .btn-warn:hover { filter: brightness(1.1); }
+  .btn-warn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-ghost {
+    background: transparent; color: var(--fg); border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { background: var(--card); }
 
-  .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .presets { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
   .preset-chip {
-    padding: 4px 10px; background: var(--card); border: 1px solid var(--border);
-    border-radius: 12px; font-size: 11px; cursor: pointer; transition: all 0.2s;
+    padding: 3px 9px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; font-size: 10px; cursor: pointer; transition: all 0.2s;
     font-family: 'Consolas', monospace;
   }
   .preset-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .preset-chip.pair { padding: 4px 10px; background: linear-gradient(90deg, rgba(88,166,255,0.1), rgba(247,129,102,0.15)); border-color: var(--warn); }
 
   .probe-result {
     background: var(--card); border: 1px solid var(--border); border-radius: 8px;
-    padding: 12px; margin-top: 8px;
+    padding: 10px; margin-top: 6px;
   }
-  .probe-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
-  .probe-label { font-size: 12px; color: var(--muted); }
-  .probe-value { font-size: 14px; font-family: 'Consolas', monospace; font-weight: 600; }
+  .probe-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; }
+  .probe-label { font-size: 11px; color: var(--muted); }
+  .probe-value { font-size: 13px; font-family: 'Consolas', monospace; font-weight: 600; }
   .probe-value.residual { color: var(--accent2); }
   .probe-value.gradient { color: var(--success); }
   .probe-value.coords { color: var(--accent); }
 
   .status-bar {
-    padding: 12px 24px; border-top: 1px solid var(--border); margin-top: auto;
+    padding: 11px 24px; border-top: 1px solid var(--border); margin-top: auto;
     font-size: 11px; color: var(--muted);
   }
   .status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; }
@@ -81,40 +113,41 @@
   #canvas3d { width: 100%; height: 100%; display: block; }
 
   .overlay-hint {
-    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-    background: rgba(22,27,34,0.85); backdrop-filter: blur(8px);
-    padding: 8px 16px; border-radius: 8px; font-size: 12px; color: var(--muted);
-    border: 1px solid var(--border); pointer-events: none;
-  }
-
-  .tooltip {
-    position: absolute; background: var(--card); border: 1px solid var(--border);
-    border-radius: 8px; padding: 10px 14px; font-size: 12px; pointer-events: none;
-    z-index: 100; display: none; backdrop-filter: blur(8px);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: rgba(22,27,34,0.88); backdrop-filter: blur(8px);
+    padding: 7px 14px; border-radius: 8px; font-size: 11px; color: var(--muted);
+    border: 1px solid var(--border); pointer-events: none; white-space: nowrap;
   }
 
   .loading-overlay {
     position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(13,17,23,0.7); display: none; justify-content: center;
-    align-items: center; z-index: 50; flex-direction: column; gap: 12px;
+    background: rgba(13,17,23,0.72); display: none; justify-content: center;
+    align-items: center; z-index: 50; flex-direction: column; gap: 10px;
   }
   .spinner {
-    width: 40px; height: 40px; border: 3px solid var(--border);
+    width: 38px; height: 38px; border: 3px solid var(--border);
     border-top-color: var(--accent); border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .loading-text { font-size: 13px; color: var(--muted); }
-  .loading-sub { font-size: 11px; color: var(--muted); opacity: 0.7; }
+  .loading-text { font-size: 13px; color: var(--fg); }
+  .loading-sub { font-size: 11px; color: var(--muted); opacity: 0.8; }
+  .loading-bar {
+    width: 220px; height: 5px; background: var(--border); border-radius: 3px; overflow: hidden;
+  }
+  .loading-bar-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.2s; }
 
   .equation-display {
     background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-    padding: 8px 12px; margin-top: 8px; font-family: 'Consolas', monospace;
-    font-size: 13px; color: var(--accent); word-break: break-all;
+    padding: 7px 10px; margin-top: 6px; font-family: 'Consolas', monospace;
+    font-size: 12px; color: var(--accent); word-break: break-all; line-height: 1.4;
+  }
+  .equation-display.mixed {
+    background: linear-gradient(90deg, rgba(88,166,255,0.08), rgba(247,129,102,0.1));
+    color: var(--fg); border-color: var(--warn);
   }
 
-  .slider-container { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .slider-container { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
   .slider-container input[type="range"] {
     flex: 1; -webkit-appearance: none; height: 4px; background: var(--border);
     border-radius: 2px; outline: none;
@@ -123,59 +156,99 @@
     -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
     background: var(--accent); cursor: pointer;
   }
-  .slider-val { font-size: 12px; color: var(--muted); min-width: 30px; text-align: right; }
+  .slider-val { font-size: 11px; color: var(--muted); min-width: 28px; text-align: right; font-family: 'Consolas', monospace; }
 
   .perf-box {
-    position: absolute; top: 16px; right: 16px;
-    background: rgba(22,27,34,0.85); backdrop-filter: blur(8px);
+    position: absolute; top: 14px; right: 14px;
+    background: rgba(22,27,34,0.88); backdrop-filter: blur(8px);
     border: 1px solid var(--border); border-radius: 8px;
-    padding: 10px 14px; font-size: 11px; font-family: 'Consolas', monospace;
+    padding: 9px 13px; font-size: 10px; font-family: 'Consolas', monospace;
     color: var(--muted); pointer-events: none; z-index: 20;
   }
-  .perf-row { display: flex; justify-content: space-between; gap: 16px; padding: 1px 0; }
+  .perf-row { display: flex; justify-content: space-between; gap: 14px; padding: 1px 0; }
   .perf-row span:last-child { color: var(--fg); }
   .perf-row .warn { color: var(--warn); }
   .perf-row .danger { color: var(--danger); }
   .perf-row .ok { color: var(--success); }
-  .lod-badge {
-    display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px;
-    font-weight: 700; text-transform: uppercase;
-  }
-  .lod-badge.low { background: var(--danger); color: #fff; }
-  .lod-badge.medium { background: var(--warn); color: #000; }
-  .lod-badge.high { background: var(--success); color: #000; }
 
   .warning-banner {
     background: rgba(210,153,34,0.1); border: 1px solid var(--warn);
-    border-radius: 6px; padding: 8px 10px; font-size: 11px;
-    color: var(--warn); margin-top: 8px; display: none;
+    border-radius: 6px; padding: 7px 9px; font-size: 10px;
+    color: var(--warn); margin-top: 6px; display: none; line-height: 1.4;
   }
   .warning-banner.show { display: block; }
 
-  .toggle-row { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
-  .toggle-label { font-size: 12px; color: var(--muted); }
-  .switch { position: relative; width: 36px; height: 20px; display: inline-block; }
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+  .toggle-label { font-size: 11px; color: var(--muted); }
+  .switch { position: relative; width: 34px; height: 18px; display: inline-block; }
   .switch input { opacity: 0; width: 0; height: 0; }
   .slider-sw {
     position: absolute; cursor: pointer; inset: 0; background: var(--border);
-    border-radius: 20px; transition: 0.2s;
+    border-radius: 18px; transition: 0.2s;
   }
   .slider-sw:before {
-    position: absolute; content: ""; height: 14px; width: 14px; left: 3px; top: 3px;
+    position: absolute; content: ""; height: 12px; width: 12px; left: 3px; top: 3px;
     background: white; border-radius: 50%; transition: 0.2s;
   }
   .switch input:checked + .slider-sw { background: var(--accent); }
   .switch input:checked + .slider-sw:before { transform: translateX(16px); }
 
   .stats-grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 6px;
   }
   .stat-card {
     background: var(--bg); border: 1px solid var(--border);
-    border-radius: 6px; padding: 8px;
+    border-radius: 6px; padding: 6px 8px;
   }
-  .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-  .stat-val { font-size: 14px; font-family: 'Consolas', monospace; font-weight: 600; margin-top: 2px; }
+  .stat-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+  .stat-val { font-size: 12px; font-family: 'Consolas', monospace; font-weight: 600; margin-top: 1px; }
+  .evolve-badge {
+    display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 9px;
+    font-weight: 700; text-transform: uppercase; color: #000;
+  }
+  .evolve-badge.low { background: var(--danger); color: #fff; }
+  .evolve-badge.medium { background: var(--warn); }
+  .evolve-badge.high { background: var(--success); color: #000; }
+
+  .t-controls {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; margin-top: 6px;
+  }
+  .t-display {
+    display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;
+  }
+  .t-label { font-size: 11px; color: var(--muted); }
+  .t-value { font-size: 18px; font-weight: 700; font-family: 'Consolas', monospace; color: var(--accent); }
+  .t-value.t-mixed {
+    background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .play-controls { display: flex; gap: 6px; margin-top: 8px; }
+  .play-btn {
+    flex: 1; padding: 6px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--card); color: var(--fg); cursor: pointer; font-size: 13px; font-weight: 700;
+    transition: all 0.15s;
+  }
+  .play-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .play-btn.active { background: var(--accent2); border-color: var(--accent2); color: #000; }
+  .play-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .evolve-meta {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-top: 6px;
+  }
+  .meta-cell {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
+    padding: 5px 6px; text-align: center;
+  }
+  .meta-label { font-size: 9px; color: var(--muted); text-transform: uppercase; }
+  .meta-value { font-size: 11px; font-family: 'Consolas', monospace; color: var(--fg); margin-top: 1px; }
+
+  .eq-pair-row {
+    display: flex; gap: 6px; align-items: center; margin-top: 6px;
+  }
+  .eq-arrow { font-size: 14px; color: var(--warn); font-weight: 700; }
+  .eq-group { flex: 1; }
 </style>
 </head>
 <body>
@@ -183,52 +256,136 @@
 <div class="sidebar">
   <div class="logo">
     <h1>⬡ Implicit Surface Explorer</h1>
-    <p>基于符号计算 · 自适应采样 · LOD 实时渲染</p>
+    <p>基于符号计算 · 自适应采样 · LOD · 方程演化</p>
   </div>
 
-  <div class="section">
-    <div class="section-title">方程输入</div>
-    <label>隐式方程 F(x,y,z) = 0</label>
-    <input type="text" id="equation" value="sin(x) + cos(y) + z**2" placeholder="例如: x**2 + y**2 + z**2 - 4" />
-    <div class="equation-display" id="eqDisplay">F(x,y,z) = sin(x) + cos(y) + z**2 = 0</div>
-    <div class="section-title" style="margin-top:12px">预设方程</div>
-    <div class="presets">
-      <span class="preset-chip" data-eq="x**2 + y**2 + z**2 - 4">球面</span>
-      <span class="preset-chip" data-eq="x**2 + y**2 - z**2 - 1">双曲面</span>
-      <span class="preset-chip" data-eq="sin(x) + cos(y) + z**2">正余弦</span>
-      <span class="preset-chip" data-eq="x**4 + y**4 + z**4 - 16">超椭球</span>
-      <span class="preset-chip" data-eq="sin(x*y) + cos(y*z) + sin(z*x)">三角混合</span>
-      <span class="preset-chip" data-eq="x**2 - y**2 + z**2 - 1">鞍面</span>
+  <div class="mode-tabs">
+    <div class="mode-tab active" data-mode="static">◉ 静态曲面</div>
+    <div class="mode-tab" data-mode="evolve">⇄ 方程演化</div>
+  </div>
+
+  <!-- ============ 静态曲面面板 ============ -->
+  <div id="panelStatic">
+    <div class="section">
+      <div class="section-title">方程输入</div>
+      <label>隐式方程 F(x,y,z) = 0</label>
+      <input type="text" id="sEquation" value="sin(x) + cos(y) + z**2" placeholder="例如: x**2 + y**2 + z**2 - 4" />
+      <div class="equation-display" id="sEqDisplay">F(x,y,z) = sin(x) + cos(y) + z**2 = 0</div>
+      <div class="section-title" style="margin-top:10px">预设方程</div>
+      <div class="presets">
+        <span class="preset-chip" data-eq="x**2 + y**2 + z**2 - 4">球面</span>
+        <span class="preset-chip" data-eq="x**2 + y**2 - z**2 - 1">双曲面</span>
+        <span class="preset-chip" data-eq="sin(x) + cos(y) + z**2">正余弦</span>
+        <span class="preset-chip" data-eq="x**4 + y**4 + z**4 - 16">超椭球</span>
+        <span class="preset-chip" data-eq="sin(x*y) + cos(y*z) + sin(z*x)">三角混合</span>
+        <span class="preset-chip" data-eq="x**2 - y**2 + z**2 - 1">鞍面</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">采样参数</div>
+      <div class="range-row">
+        <div><label class="small">X 范围</label><input type="number" id="sXMin" value="-5" /><input type="number" id="sXMax" value="5" style="margin-top:3px" /></div>
+        <div><label class="small">Y 范围</label><input type="number" id="sYMin" value="-5" /><input type="number" id="sYMax" value="5" style="margin-top:3px" /></div>
+        <div><label class="small">Z 范围</label><input type="number" id="sZMin" value="-5" /><input type="number" id="sZMax" value="5" style="margin-top:3px" /></div>
+      </div>
+      <div class="slider-container" style="margin-top:10px">
+        <label style="margin:0;min-width:44px;font-size:11px">分辨率</label>
+        <input type="range" id="sResolution" min="20" max="120" value="60" />
+        <span class="slider-val" id="sResVal">60</span>
+      </div>
+      <div class="warning-banner" id="sWarning">⚠ 该方程计算量较大，已启用自适应采样</div>
+      <div class="toggle-row">
+        <span class="toggle-label">启用 LOD 细节层次</span>
+        <label class="switch"><input type="checkbox" id="sLodToggle" checked /><span class="slider-sw"></span></label>
+      </div>
+      <button class="btn btn-primary" id="sGenerateBtn">⟳ 生成曲面</button>
     </div>
   </div>
 
-  <div class="section">
-    <div class="section-title">采样参数</div>
-    <div class="range-row">
-      <div><label>X 范围</label><input type="number" id="xMin" value="-5" /><input type="number" id="xMax" value="5" style="margin-top:4px" /></div>
-      <div><label>Y 范围</label><input type="number" id="yMin" value="-5" /><input type="number" id="yMax" value="5" style="margin-top:4px" /></div>
-      <div><label>Z 范围</label><input type="number" id="zMin" value="-5" /><input type="number" id="zMax" value="5" style="margin-top:4px" /></div>
+  <!-- ============ 方程演化面板 ============ -->
+  <div id="panelEvolve" class="panel-hidden">
+    <div class="section">
+      <div class="section-title">方程对 (1 -&zwj;➜ 2)</div>
+      <div class="eq-pair-row">
+        <div class="eq-group">
+          <label class="small">起点方程 F₁</label>
+          <input type="text" class="eq-evolve" id="eEq1" value="x**2 + y**2 + z**2 - 4" />
+        </div>
+        <span class="eq-arrow">⇄</span>
+        <div class="eq-group">
+          <label class="small">终点方程 F₂</label>
+          <input type="text" class="eq-evolve eq2" id="eEq2" value="x**2 + y**2 - z**2 - 1" />
+        </div>
+      </div>
+      <div class="equation-display mixed" id="eMixedDisplay">
+        F(x,y,z) = (1-t)·F₁ + t·F₂ = 0
+      </div>
+      <div class="section-title" style="margin-top:10px">预设演化对</div>
+      <div class="presets">
+        <span class="preset-chip pair" data-e1="x**2 + y**2 + z**2 - 4" data-e2="x**2 + y**2 - z**2 - 1">球↔双曲</span>
+        <span class="preset-chip pair" data-e1="x**2 + y**2 + z**2 - 4" data-e2="x**4 + y**4 + z**4 - 16">球↔超椭球</span>
+        <span class="preset-chip pair" data-e1="x**2 - y**2 + z**2 - 1" data-e2="sin(x) + cos(y) + z**2">鞍↔正余弦</span>
+        <span class="preset-chip pair" data-e1="x**2 + y**2 + z**2 - 1" data-e2="sin(x*y) + cos(y*z) + sin(z*x)">球↔三角混合</span>
+      </div>
     </div>
-    <div class="slider-container" style="margin-top:12px">
-      <label style="margin:0;min-width:50px">分辨率</label>
-      <input type="range" id="resolution" min="20" max="120" value="60" />
-      <span class="slider-val" id="resVal">60</span>
+
+    <div class="section">
+      <div class="section-title">采样 &amp; 动画参数</div>
+      <div class="range-row">
+        <div><label class="small">X 范围</label><input type="number" id="eXMin" value="-5" /><input type="number" id="eXMax" value="5" style="margin-top:3px" /></div>
+        <div><label class="small">Y 范围</label><input type="number" id="eYMin" value="-5" /><input type="number" id="eYMax" value="5" style="margin-top:3px" /></div>
+        <div><label class="small">Z 范围</label><input type="number" id="eZMin" value="-5" /><input type="number" id="eZMax" value="5" style="margin-top:3px" /></div>
+      </div>
+      <div class="slider-container" style="margin-top:8px">
+        <label style="margin:0;min-width:44px;font-size:11px">分辨率</label>
+        <input type="range" id="eResolution" min="20" max="90" value="50" />
+        <span class="slider-val" id="eResVal">50</span>
+      </div>
+      <div class="slider-container" style="margin-top:4px">
+        <label style="margin:0;min-width:44px;font-size:11px">速度 FPS</label>
+        <input type="range" id="eFps" min="5" max="60" value="20" />
+        <span class="slider-val" id="eFpsVal">20</span>
+      </div>
+      <button class="btn btn-warn" id="eInitBtn">⚡ 初始化预计算</button>
+
+      <div class="t-controls" id="eTControls" style="display:none">
+        <div class="t-display">
+          <span class="t-label">混合参数 t</span>
+          <span class="t-value" id="eTValue">0.000</span>
+        </div>
+        <div class="slider-container" style="margin-top:0">
+          <label style="margin:0;min-width:14px;font-size:10px;color:var(--accent)">F₁</label>
+          <input type="range" id="eTSlider" min="0" max="1000" value="0" step="1" style="flex:1" />
+          <label style="margin:0;min-width:14px;font-size:10px;color:var(--accent2)">F₂</label>
+        </div>
+        <div class="play-controls">
+          <button class="play-btn" id="ePlayBtn">▶ 播放</button>
+          <button class="play-btn" id="eResetBtn">⟲ 重置</button>
+          <button class="play-btn" id="ePingpongBtn">⇋ 往返</button>
+        </div>
+        <div class="evolve-meta">
+          <div class="meta-cell">
+            <div class="meta-label">缓存帧</div>
+            <div class="meta-value" id="eCached">0</div>
+          </div>
+          <div class="meta-cell">
+            <div class="meta-label">顶点数</div>
+            <div class="meta-value" id="eVerts">0</div>
+          </div>
+          <div class="meta-cell">
+            <div class="meta-label">帧时</div>
+            <div class="meta-value" id="eFrameTime">0ms</div>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="warning-banner" id="warningBanner">⚠ 该方程计算量较大，已启用自适应采样防止内存溢出</div>
-    <div class="toggle-row">
-      <span class="toggle-label">启用 LOD 细节层次</span>
-      <label class="switch">
-        <input type="checkbox" id="lodToggle" checked />
-        <span class="slider-sw"></span>
-      </label>
-    </div>
-    <button class="btn btn-primary" id="generateBtn">⟳ 生成曲面</button>
   </div>
 
   <div class="section">
     <div class="section-title">参数探针</div>
-    <p style="font-size:12px;color:var(--muted);margin-bottom:8px">点击曲面上的点，查看该处的残差和梯度方向</p>
-    <div id="probeEmpty" style="font-size:12px;color:var(--muted);text-align:center;padding:16px 0">尚未探测任何点</div>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:6px">点击曲面上的点，查看该处的残差和梯度方向</p>
+    <div id="probeEmpty" style="font-size:11px;color:var(--muted);text-align:center;padding:14px 0">尚未探测任何点</div>
     <div id="probeResult" class="probe-result" style="display:none">
       <div class="probe-row">
         <span class="probe-label">坐标</span>
@@ -243,17 +400,17 @@
         <span class="probe-value gradient" id="probeGradient">(0, 0, 0)</span>
       </div>
     </div>
-    <div class="slider-container" style="margin-top:8px">
-      <label style="margin:0;min-width:70px">箭头长度</label>
+    <div class="slider-container" style="margin-top:6px">
+      <label style="margin:0;min-width:64px;font-size:11px">箭头长度</label>
       <input type="range" id="arrowLen" min="0.1" max="5" step="0.1" value="1.5" />
       <span class="slider-val" id="arrowLenVal">1.5</span>
     </div>
-    <button class="btn" style="background:var(--card);color:var(--fg);border:1px solid var(--border);margin-top:8px" id="clearProbeBtn">✕ 清除探针</button>
+    <button class="btn btn-ghost" id="clearProbeBtn" style="margin-top:6px">✕ 清除探针</button>
   </div>
 
   <div class="section">
     <div class="section-title">网格统计</div>
-    <div class="stats-grid" id="statsGrid">
+    <div class="stats-grid">
       <div class="stat-card">
         <div class="stat-label">顶点数</div>
         <div class="stat-val" id="statVerts">-</div>
@@ -263,8 +420,8 @@
         <div class="stat-val" id="statFaces">-</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">LOD 级别</div>
-        <div class="stat-val" id="statLod"><span class="lod-badge medium">AUTO</span></div>
+        <div class="stat-label">模式</div>
+        <div class="stat-val" id="statMode"><span class="evolve-badge medium">STATIC</span></div>
       </div>
       <div class="stat-card">
         <div class="stat-label">显存估计</div>
@@ -285,15 +442,15 @@
     <div class="perf-row"><span>FPS</span><span id="perfFps" class="ok">0</span></div>
     <div class="perf-row"><span>帧时</span><span id="perfFrame">0 ms</span></div>
     <div class="perf-row"><span>相机距离</span><span id="perfDist">0</span></div>
-    <div class="perf-row"><span>当前 LOD</span><span id="perfLod">-</span></div>
+    <div class="perf-row"><span>模式</span><span id="perfMode">STATIC</span></div>
     <div class="perf-row"><span>绘制调用</span><span id="perfDraws">0</span></div>
   </div>
   <div class="overlay-hint" id="hint">🖱 左键旋转 · 右键平移 · 滚轮缩放 · 点击曲面探测</div>
-  <div class="tooltip" id="tooltip"></div>
   <div class="loading-overlay" id="loadingOverlay">
     <div class="spinner"></div>
-    <div class="loading-text" id="loadingText">正在生成曲面...</div>
+    <div class="loading-text" id="loadingText">正在生成...</div>
     <div class="loading-sub" id="loadingSub">自适应采样中</div>
+    <div class="loading-bar"><div class="loading-bar-fill" id="loadingBarFill"></div></div>
   </div>
 </div>
 
@@ -303,6 +460,22 @@
 <script>
 (function() {
   var API_BASE = '';
+
+  // ===== 模式切换 =====
+  var currentMode = 'static';
+  document.querySelectorAll('.mode-tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      document.querySelectorAll('.mode-tab').forEach(function(t) { t.classList.remove('active'); });
+      this.classList.add('active');
+      currentMode = this.getAttribute('data-mode');
+      document.getElementById('panelStatic').classList.toggle('panel-hidden', currentMode !== 'static');
+      document.getElementById('panelEvolve').classList.toggle('panel-hidden', currentMode !== 'evolve');
+      document.getElementById('perfMode').textContent = currentMode === 'evolve' ? 'EVOLVE' : 'STATIC';
+      document.getElementById('statMode').innerHTML = '<span class="evolve-badge ' + (currentMode === 'evolve' ? 'high' : 'medium') + '">' + (currentMode === 'evolve' ? 'EVOLVE' : 'STATIC') + '</span>';
+    });
+  });
+
+  // ===== Three.js 初始化 =====
   var canvas = document.getElementById('canvas3d');
   var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(window.devicePixelRatio);
@@ -331,10 +504,10 @@
 
   var gridHelper = new THREE.GridHelper(20, 20, 0x30363d, 0x1c2128);
   scene.add(gridHelper);
-
   var axesHelper = new THREE.AxesHelper(8);
   scene.add(axesHelper);
 
+  // 全局状态
   var currentSurface = null;
   var lodEnabled = true;
   var probeMarker = null;
@@ -343,11 +516,21 @@
   var raycaster = new THREE.Raycaster();
   var mouse = new THREE.Vector2();
 
+  // FPS统计
   var lastFrame = performance.now();
   var fpsFrames = 0;
   var fpsAccum = 0;
   var currentLodLevel = 'high';
   var meshStats = null;
+
+  // ===== 演化状态
+  var evolveSid = null;
+  var evolvePlaying = false;
+  var evolvePingPong = false;
+  var evolveDir = 1;
+  var evolveLastFrameTime = 0;
+  var evolveFps = 20;
+  var evolveCurrentT = 0;
 
   function onResize() {
     var rect = canvas.parentElement.getBoundingClientRect();
@@ -362,21 +545,42 @@
   window.addEventListener('resize', onResize);
   onResize();
 
+  function setStatus(loading, text) {
+    var dot = document.getElementById('statusDot');
+    var txt = document.getElementById('statusText');
+    dot.className = 'status-dot ' + (loading ? 'loading' : 'ready');
+    txt.textContent = text;
+  }
+
+  function showLoading(text, sub, progress) {
+    document.getElementById('loadingOverlay').style.display = 'flex';
+    document.getElementById('loadingText').textContent = text || '处理中...';
+    document.getElementById('loadingSub').textContent = sub || '';
+    document.getElementById('loadingBarFill').style.width = (progress || 0) + '%';
+  }
+  function hideLoading() {
+    document.getElementById('loadingOverlay').style.display = 'none';
+  }
+  function updateLoadingProgress(p) {
+    document.getElementById('loadingBarFill').style.width = Math.max(0, Math.min(100, p * 100)) + '%';
+  }
+
+  // ===== 动画主循环 =====
   function animate() {
     requestAnimationFrame(animate);
     var now = performance.now();
     var delta = now - lastFrame;
     lastFrame = now;
+
     fpsAccum += delta;
     fpsFrames++;
-    if (fpsAccum >= 500) {
+    if (fpsAccum >= 400) {
       var fps = 1000 / (fpsAccum / fpsFrames);
       var fpsEl = document.getElementById('perfFps');
       fpsEl.textContent = fps.toFixed(0);
       fpsEl.className = fps >= 50 ? 'ok' : (fps >= 30 ? 'warn' : 'danger');
       document.getElementById('perfFrame').textContent = (fpsAccum / fpsFrames).toFixed(1) + ' ms';
-      fpsAccum = 0;
-      fpsFrames = 0;
+      fpsAccum = 0; fpsFrames = 0;
       document.getElementById('perfDraws').textContent = renderer.info.render.calls;
     }
 
@@ -391,24 +595,39 @@
       if (lvlName !== currentLodLevel) {
         currentLodLevel = lvlName;
         updateLodBadge(lvlName);
-        document.getElementById('perfLod').textContent = lvlName.toUpperCase();
       }
     }
 
     var dist = camera.position.length();
     document.getElementById('perfDist').textContent = dist.toFixed(1);
 
+    // 演化动画帧调度
+    if (evolvePlaying && currentMode === 'evolve') {
+      evolveScheduleFrame(now);
+    }
+
     renderer.render(scene, camera);
   }
   animate();
 
-  function setStatus(loading, text) {
-    var dot = document.getElementById('statusDot');
-    var txt = document.getElementById('statusText');
-    dot.className = 'status-dot ' + (loading ? 'loading' : 'ready');
-    txt.textContent = text;
+  function evolveScheduleFrame(now) {
+    if (!evolveSid) return;
+    var interval = 1000 / evolveFps;
+    if (now - evolveLastFrameTime < interval) return;
+    evolveLastFrameTime = now;
+    var dt = evolveDir * (1 / evolveFps) * (evolvePingPong ? 1.5 : 1.0);
+    var newT = evolveCurrentT + dt;
+    if (newT >= 1) { newT = 1; if (evolvePingPong) { evolveDir = -1; } }
+    if (newT <= 0) { newT = 0; if (evolvePingPong) { evolveDir = 1; } }
+    if (!evolvePingPong && (newT >= 1 || newT <= 0)) {
+      evolvePlaying = false;
+      document.getElementById('ePlayBtn').textContent = '▶ 播放';
+      document.getElementById('ePlayBtn').classList.remove('active');
+    }
+    evolveSetT(newT);
   }
 
+  // ===== 几何构建 =====
   function removeSurface() {
     if (currentSurface) {
       var disposeObj = function(obj) {
@@ -440,10 +659,10 @@
     var verts = data.vertices;
     var faces = data.faces;
     var normals = data.normals;
+    if (!verts || !faces || verts.length === 0 || faces.length === 0) return null;
     var geometry = new THREE.BufferGeometry();
     var positions = new Float32Array(faces.length * 9);
     var normalArr = new Float32Array(faces.length * 9);
-
     for (var i = 0; i < faces.length; i++) {
       var f = faces[i];
       for (var j = 0; j < 3; j++) {
@@ -458,16 +677,15 @@
         }
       }
     }
-
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(normalArr, 3));
     geometry.computeBoundingSphere();
     return geometry;
   }
 
-  function buildMaterial(opacity) {
+  function buildMaterial(opacity, color) {
     return new THREE.MeshPhongMaterial({
-      color: 0x58a6ff,
+      color: color !== undefined ? color : 0x58a6ff,
       shininess: 60,
       transparent: true,
       opacity: opacity,
@@ -486,67 +704,61 @@
     return new THREE.Mesh(geometry, wireMat);
   }
 
-  function buildSingleMesh(data) {
+  function buildSingleMesh(data, color) {
     removeSurface();
     var geometry = buildGeometry(data);
-    var material = buildMaterial(0.82);
+    if (!geometry) {
+      setStatus(false, '空网格（该 t 值下无曲面');
+      return;
+    }
+    var material = buildMaterial(0.85, color);
     var mesh = new THREE.Mesh(geometry, material);
-    mesh.add(buildWireMesh(geometry, 0.08));
+    mesh.add(buildWireMesh(geometry, 0.09));
     scene.add(mesh);
     currentSurface = mesh;
     currentLodLevel = 'high';
-    updateStats({ high: data });
+    updateStatsSimple(data);
   }
 
   function buildLodMeshes(lodData) {
     removeSurface();
-    lodEnabled = document.getElementById('lodToggle').checked;
-
+    lodEnabled = document.getElementById('sLodToggle').checked;
     if (!lodEnabled || !lodData.low || !lodData.medium) {
       buildSingleMesh(lodData.high);
       return;
     }
-
     var lod = new THREE.LOD();
-
     var geoLow = buildGeometry(lodData.low);
-    var matLow = buildMaterial(0.8);
-    var meshLow = new THREE.Mesh(geoLow, matLow);
-    meshLow.add(buildWireMesh(geoLow, 0.05));
-
+    if (!geoLow) { buildSingleMesh(lodData.high); return; }
     var geoMed = buildGeometry(lodData.medium);
-    var matMed = buildMaterial(0.82);
-    var meshMed = new THREE.Mesh(geoMed, matMed);
-    meshMed.add(buildWireMesh(geoMed, 0.07));
-
     var geoHigh = buildGeometry(lodData.high);
-    var matHigh = buildMaterial(0.85);
-    var meshHigh = new THREE.Mesh(geoHigh, matHigh);
-    meshHigh.add(buildWireMesh(geoHigh, 0.09));
 
-    var radius = Math.max(
-      (geoLow.boundingSphere && geoLow.boundingSphere.radius) || 5,
-      (geoHigh.boundingSphere && geoHigh.boundingSphere.radius) || 5
-    );
-    var dFar = radius * 8;
-    var dMid = radius * 4;
+    lod.addLevel(new THREE.Mesh(geoLow, buildMaterial(0.8)), 40);
+    lod.addLevel(new THREE.Mesh(geoMed, buildMaterial(0.82)), 20);
+    lod.addLevel(new THREE.Mesh(geoHigh, buildMaterial(0.85)), 0);
 
-    lod.addLevel(meshLow, dFar);
-    lod.addLevel(meshMed, dMid);
-    lod.addLevel(meshHigh, 0);
-
+    var radius = 0;
+    [geoLow, geoMed, geoHigh].forEach(function(g) {
+      if (g && g.boundingSphere) radius = Math.max(radius, g.boundingSphere.radius);
+    });
+    if (radius > 0) {
+      lod.levels[0].distance = radius * 8;
+      lod.levels[1].distance = radius * 4;
+      lod.levels[2].distance = 0;
+    }
+    lod.levels.forEach(function(l) {
+      l.object.add(buildWireMesh(l.object.geometry, 0.06));
+    });
     scene.add(lod);
     currentSurface = lod;
-
-    updateStats(lodData);
-    setStatus(false, 'LOD 曲面已就绪 · 自动根据相机距离切换精度');
+    updateStats({ high: lodData.high });
+    setStatus(false, 'LOD 曲面就绪 · 自动根据相机距离切换精度');
   }
 
-  function updateStats(data) {
-    meshStats = data;
-    var hi = data.high;
-    var verts = hi.vertex_count !== undefined ? hi.vertex_count : hi.vertices.length;
-    var faces = hi.face_count !== undefined ? hi.face_count : hi.faces.length;
+  function updateStatsSimple(data) {
+    meshStats = data ? { high: data } : null;
+    var verts = data.vertex_count !== undefined ? data.vertex_count : (data.vertices ? data.vertices.length : 0);
+    var faces = data.face_count !== undefined ? data.face_count : (data.faces ? data.faces.length : 0);
     document.getElementById('statVerts').textContent = verts.toLocaleString();
     document.getElementById('statFaces').textContent = faces.toLocaleString();
     var memBytes = (verts * 3 * 4 + faces * 3 * 4) * (lodEnabled ? 2.5 : 1);
@@ -556,9 +768,16 @@
     updateLodBadge(currentLodLevel);
   }
 
+  function updateStats(data) {
+    meshStats = data;
+    updateStatsSimple(data.high);
+  }
+
   function updateLodBadge(lvl) {
-    var el = document.getElementById('statLod');
-    el.innerHTML = '<span class="lod-badge ' + lvl + '">' + (lodEnabled ? lvl : 'FIXED').toUpperCase() + '</span>';
+    var el = document.getElementById('statMode');
+    var badge = currentMode === 'evolve' ? 'EVOLVE' : (lodEnabled ? lvl : 'FIXED');
+    var cls = currentMode === 'evolve' ? 'high' : (lodEnabled ? lvl : 'medium');
+    el.innerHTML = '<span class="evolve-badge ' + cls + '">' + badge.toUpperCase() + '</span>';
   }
 
   function getRaycastTargets() {
@@ -589,18 +808,260 @@
     scene.add(probeArrow);
   }
 
-  document.getElementById('equation').addEventListener('input', function() {
+  // ===== 静态模式事件 =====
+  document.getElementById('sEquation').addEventListener('input', function() {
     var eq = this.value.trim();
-    document.getElementById('eqDisplay').textContent = 'F(x,y,z) = ' + eq + ' = 0';
+    document.getElementById('sEqDisplay').textContent = 'F(x,y,z) = ' + eq + ' = 0';
+  });
+  document.getElementById('sResolution').addEventListener('input', function() {
+    document.getElementById('sResVal').textContent = this.value;
+    document.getElementById('sWarning').classList.toggle('show', parseInt(this.value) > 80);
+  });
+  document.getElementById('sLodToggle').addEventListener('change', function() {
+    lodEnabled = this.checked;
+    if (meshStats && lodEnabled && currentMode === 'static') buildLodMeshes(meshStats);
+    else if (meshStats && !lodEnabled && currentMode === 'static') buildSingleMesh(meshStats.high);
+  });
+  document.querySelectorAll('#panelStatic .preset-chip').forEach(function(chip) {
+    chip.addEventListener('click', function() {
+      var eq = this.getAttribute('data-eq');
+      document.getElementById('sEquation').value = eq;
+      document.getElementById('sEqDisplay').textContent = 'F(x,y,z) = ' + eq + ' = 0';
+      var isHeavy = eq.indexOf('**4') !== -1 || eq.indexOf('*y') !== -1 || eq.length > 25;
+      document.getElementById('sWarning').classList.toggle('show', isHeavy);
+    });
+  });
+  document.getElementById('sGenerateBtn').addEventListener('click', function() {
+    var eq = document.getElementById('sEquation').value.trim();
+    if (!eq) return;
+    currentEquation = eq;
+    removeProbe();
+    var xRange = [parseFloat(document.getElementById('sXMin').value), parseFloat(document.getElementById('sXMax').value)];
+    var yRange = [parseFloat(document.getElementById('sYMin').value), parseFloat(document.getElementById('sYMax').value)];
+    var zRange = [parseFloat(document.getElementById('sZMin').value), parseFloat(document.getElementById('sZMax').value)];
+    var resolution = parseInt(document.getElementById('sResolution').value);
+    var useLod = document.getElementById('sLodToggle').checked;
+
+    showLoading(useLod ? '正在生成多级精度曲面...' : '正在生成曲面...', '自适应局部加密采样中');
+    setStatus(true, useLod ? '生成 LOD 三级精度网格中...' : '生成网格中...');
+
+    var endpoint = useLod ? '/api/generate_lod' : '/api/generate';
+    fetch(API_BASE + endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ equation: eq, x_range: xRange, y_range: yRange, z_range: zRange, resolution: resolution })
+    }).then(function(r) { return r.json(); })
+    .then(function(data) {
+      hideLoading();
+      if (data.error) { setStatus(false, '错误: ' + data.error); alert(data.error); return; }
+      if (useLod) {
+        buildLodMeshes(data);
+        setStatus(false, 'LOD就绪');
+      } else {
+        buildSingleMesh(data);
+        setStatus(false, '曲面已生成');
+      }
+    })
+    .catch(function(err) { hideLoading(); setStatus(false, '请求失败'); alert('请求失败: ' + err.message); });
   });
 
-  document.getElementById('resolution').addEventListener('input', function() {
-    document.getElementById('resVal').textContent = this.value;
-    if (parseInt(this.value) > 80) {
-      document.getElementById('warningBanner').classList.add('show');
-    } else {
-      document.getElementById('warningBanner').classList.remove('show');
+  // ===== 演化模式事件 =====
+  function updateMixedDisplay() {
+    var eq1 = document.getElementById('eEq1').value.trim() || 'F1';
+    var eq2 = document.getElementById('eEq2').value.trim() || 'F2';
+    var t = parseFloat(document.getElementById('eTSlider').value) / 1000;
+    var display;
+    if (t === 0) display = 'F(x,y,z) = F₁ = 0  →  ' + eq1 + ' = 0';
+    else if (t === 1) display = 'F(x,y,z) = F₂ = 0  →  ' + eq2 + ' = 0';
+    else display = 'F = (1-t)·F₁ + t·F₂ = 0   [t=' + t.toFixed(3) + ']';
+    document.getElementById('eMixedDisplay').textContent = display;
+  }
+  ['eEq1', 'eEq2'].forEach(function(id) {
+    document.getElementById(id).addEventListener('input', updateMixedDisplay);
+  });
+
+  document.querySelectorAll('#panelEvolve .preset-chip.pair').forEach(function(chip) {
+    chip.addEventListener('click', function() {
+      var e1 = this.getAttribute('data-e1');
+      var e2 = this.getAttribute('data-e2');
+      document.getElementById('eEq1').value = e1;
+      document.getElementById('eEq2').value = e2;
+      evolveSid = null;
+      evolvePlaying = false;
+      document.getElementById('eTControls').style.display = 'none';
+      document.getElementById('eInitBtn').disabled = false;
+      document.getElementById('eInitBtn').textContent = '⚡ 初始化预计算';
+      updateMixedDisplay();
+    });
+  });
+
+  document.getElementById('eResolution').addEventListener('input', function() {
+    document.getElementById('eResVal').textContent = this.value;
+  });
+  document.getElementById('eFps').addEventListener('input', function() {
+    document.getElementById('eFpsVal').textContent = this.value;
+    evolveFps = parseInt(this.value);
+  });
+
+  document.getElementById('eInitBtn').addEventListener('click', function() {
+    var eq1 = document.getElementById('eEq1').value.trim();
+    var eq2 = document.getElementById('eEq2').value.trim();
+    if (!eq1 || !eq2) { alert('请输入两个方程'); return; }
+    var xRange = [parseFloat(document.getElementById('eXMin').value), parseFloat(document.getElementById('eXMax').value)];
+    var yRange = [parseFloat(document.getElementById('eYMin').value), parseFloat(document.getElementById('eYMax').value)];
+    var zRange = [parseFloat(document.getElementById('eZMin').value), parseFloat(document.getElementById('eZMax').value)];
+    var resolution = parseInt(document.getElementById('eResolution').value);
+    evolveFps = parseInt(document.getElementById('eFps').value);
+
+    this.disabled = true;
+    showLoading('正在初始化演化会话...', '预计算 F₁ 和 F₂ 的体积数据');
+    setStatus(true, '初始化演化预计算中...');
+
+    fetch(API_BASE + '/api/evolve/init', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ equation1: eq1, equation2: eq2, x_range: xRange, y_range: yRange, z_range: zRange, resolution: resolution })
+    }).then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { hideLoading(); alert(data.error); document.getElementById('eInitBtn').disabled = false; return; }
+      evolveSid = data.session_id;
+      pollEvolveStatus();
+    }).catch(function(err) { hideLoading(); alert('请求失败: ' + err.message); document.getElementById('eInitBtn').disabled = false; });
+  });
+
+  function pollEvolveStatus() {
+    if (!evolveSid) return;
+    fetch(API_BASE + '/api/evolve/status?session_id=' + evolveSid)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) { hideLoading(); alert(data.error); document.getElementById('eInitBtn').disabled = false; return; }
+        updateLoadingProgress(data.progress || 0);
+        var subMap = { starting: '启动后台任务', computing_bbox: '计算曲面包围盒', computing_F1: '计算 F₁ 体积场', computing_F2: '计算 F₂ 体积场', ready: '完成' };
+        document.getElementById('loadingSub').textContent = subMap[data.status] || data.status;
+        if (data.status === 'ready') {
+          hideLoading();
+          document.getElementById('eTControls').style.display = 'block';
+          document.getElementById('eInitBtn').textContent = '✓ 已就绪 · 点击重新初始化';
+          document.getElementById('eInitBtn').disabled = false;
+          document.getElementById('eCached').textContent = data.cached_frames || 0;
+          evolveSetT(0);
+          setStatus(false, '演化就绪 · ' + (data.grid_size ? data.grid_size.join('×') : '') + ' 网格');
+          return;
+        }
+        if (data.status === 'error') {
+          hideLoading(); alert('预计算失败: ' + (data.error || '未知错误'));
+          document.getElementById('eInitBtn').disabled = false; return;
+        }
+        setTimeout(pollEvolveStatus, 300);
+      });
+  }
+
+  function evolveSetT(t) {
+    if (!evolveSid) return;
+    t = Math.max(0, Math.min(1, t));
+    evolveCurrentT = t;
+    document.getElementById('eTSlider').value = Math.round(t * 1000);
+    document.getElementById('eTValue').textContent = t.toFixed(3);
+    updateMixedDisplay();
+
+    var eq1 = document.getElementById('eEq1').value.trim();
+    var eq2 = document.getElementById('eEq2').value.trim();
+    if (t === 0) currentEquation = eq1;
+    else if (t === 1) currentEquation = eq2;
+    else currentEquation = '(1-' + t.toFixed(3) + ')*(' + eq1 + ') + (' + t.toFixed(3) + ')*(' + eq2 + ')';
+
+    var t0 = performance.now();
+    fetch(API_BASE + '/api/evolve/frame?session_id=' + evolveSid + '&t=' + t.toFixed(4))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) { setStatus(false, '帧请求失败: ' + data.error); return; }
+        var dt = performance.now() - t0;
+        document.getElementById('eFrameTime').textContent = dt.toFixed(0) + 'ms';
+        document.getElementById('eVerts').textContent = (data.vertex_count || 0).toLocaleString();
+        if (data.vertex_count > 0) {
+          var col = new THREE.Color();
+          col.setHSL(0.58 * (1 - t) + 0.02 * t, 0.75 * (1 - t) + 0.6 * t, 0.6 * (1 - t) + 0.55 * t);
+          buildSingleMesh(data, col.getHex());
+          removeProbe();
+        } else {
+          removeSurface();
+          setStatus(false, '该 t 值下无曲面');
+        }
+        fetch(API_BASE + '/api/evolve/status?session_id=' + evolveSid)
+          .then(function(r) { return r.json(); })
+          .then(function(s) { if (!s.error) document.getElementById('eCached').textContent = s.cached_frames || 0; });
+      });
+  }
+
+  document.getElementById('eTSlider').addEventListener('input', function() {
+    var t = parseInt(this.value) / 1000;
+    evolveSetT(t);
+  });
+
+  document.getElementById('ePlayBtn').addEventListener('click', function() {
+    evolvePlaying = !evolvePlaying;
+    evolvePingPong = false;
+    document.getElementById('ePingpongBtn').classList.remove('active');
+    this.textContent = evolvePlaying ? '⏸ 暂停' : '▶ 播放';
+    this.classList.toggle('active', evolvePlaying);
+    evolveDir = evolveCurrentT >= 1 ? -1 : 1;
+  });
+
+  document.getElementById('eResetBtn').addEventListener('click', function() {
+    evolvePlaying = false;
+    evolvePingPong = false;
+    document.getElementById('ePlayBtn').classList.remove('active');
+    document.getElementById('ePingpongBtn').classList.remove('active');
+    document.getElementById('ePlayBtn').textContent = '▶ 播放';
+    evolveDir = 1;
+    evolveSetT(0);
+  });
+
+  document.getElementById('ePingpongBtn').addEventListener('click', function() {
+    evolvePlaying = true;
+    evolvePingPong = !evolvePingPong;
+    this.classList.toggle('active', evolvePingPong);
+    document.getElementById('ePlayBtn').textContent = '⏸ 暂停';
+    document.getElementById('ePlayBtn').classList.add('active');
+    evolveDir = evolveCurrentT >= 1 ? -1 : 1;
+  });
+
+  // ===== 探针 =====
+  canvas.addEventListener('click', function(event) {
+    if (!currentSurface) return;
+    var rect = canvas.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    var targets = getRaycastTargets();
+    var intersects = raycaster.intersectObjects(targets, true);
+    if (intersects.length > 0 && currentEquation) {
+      var point = intersects[0].point;
+      addProbeMarker(point);
+      fetch(API_BASE + '/api/probe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ equation: currentEquation, x: point.x, y: point.y, z: point.z })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) { setStatus(false, '探测失败: ' + data.error); return; }
+        document.getElementById('probeEmpty').style.display = 'none';
+        document.getElementById('probeResult').style.display = 'block';
+        document.getElementById('probeCoord').textContent = '(' + point.x.toFixed(4) + ', ' + point.y.toFixed(4) + ', ' + point.z.toFixed(4) + ')';
+        document.getElementById('probeResidual').textContent = data.residual.toExponential(4);
+        var g = data.gradient;
+        document.getElementById('probeGradient').textContent = '(' + g[0].toFixed(4) + ', ' + g[1].toFixed(4) + ', ' + g[2].toFixed(4) + ')';
+        addGradientArrow(point, g);
+        setStatus(false, '探测完成 · 残差 = ' + data.residual.toExponential(4));
+      })
+      .catch(function() { setStatus(false, '探测请求失败'); });
     }
+  });
+
+  document.getElementById('clearProbeBtn').addEventListener('click', function() {
+    removeProbe();
+    setStatus(false, currentSurface ? '探针已清除' : '就绪');
   });
 
   document.getElementById('arrowLen').addEventListener('input', function() {
@@ -612,146 +1073,9 @@
     }
   });
 
-  document.getElementById('lodToggle').addEventListener('change', function() {
-    lodEnabled = this.checked;
-    if (meshStats && lodEnabled) {
-      buildLodMeshes(meshStats);
-    } else if (meshStats && !lodEnabled) {
-      buildSingleMesh(meshStats.high);
-    }
-  });
-
-  document.querySelectorAll('.preset-chip').forEach(function(chip) {
-    chip.addEventListener('click', function() {
-      var eq = this.getAttribute('data-eq');
-      document.getElementById('equation').value = eq;
-      document.getElementById('eqDisplay').textContent = 'F(x,y,z) = ' + eq + ' = 0';
-      if (eq.indexOf('**4') !== -1 || eq.indexOf('*y') !== -1 || eq.length > 25) {
-        document.getElementById('warningBanner').classList.add('show');
-      } else {
-        document.getElementById('warningBanner').classList.remove('show');
-      }
-    });
-  });
-
-  document.getElementById('generateBtn').addEventListener('click', function() {
-    var eq = document.getElementById('equation').value.trim();
-    if (!eq) return;
-    currentEquation = eq;
-    removeProbe();
-
-    var xRange = [parseFloat(document.getElementById('xMin').value), parseFloat(document.getElementById('xMax').value)];
-    var yRange = [parseFloat(document.getElementById('yMin').value), parseFloat(document.getElementById('yMax').value)];
-    var zRange = [parseFloat(document.getElementById('zMin').value), parseFloat(document.getElementById('zMax').value)];
-    var resolution = parseInt(document.getElementById('resolution').value);
-    var useLod = document.getElementById('lodToggle').checked;
-
-    document.getElementById('loadingOverlay').style.display = 'flex';
-    document.getElementById('loadingText').textContent = useLod ? '正在生成多级精度曲面...' : '正在生成曲面...';
-    document.getElementById('loadingSub').textContent = '自适应局部加密采样中';
-    setStatus(true, useLod ? '生成 LOD 三级精度网格中...' : '生成网格中...');
-
-    var endpoint = useLod ? '/api/generate_lod' : '/api/generate';
-
-    fetch(API_BASE + endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        equation: eq,
-        x_range: xRange,
-        y_range: yRange,
-        z_range: zRange,
-        resolution: resolution
-      })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      document.getElementById('loadingOverlay').style.display = 'none';
-      if (data.error) {
-        setStatus(false, '错误: ' + data.error);
-        alert(data.error);
-        return;
-      }
-      if (useLod) {
-        buildLodMeshes(data);
-        var l = data.low.vertex_count || data.low.vertices.length;
-        var m = data.medium.vertex_count || data.medium.vertices.length;
-        var h = data.high.vertex_count || data.high.vertices.length;
-        setStatus(false, 'LOD就绪 · L:' + l + ' M:' + m + ' H:' + h + ' 顶点');
-      } else {
-        buildSingleMesh(data);
-        setStatus(false, '曲面已生成 · ' + (data.vertex_count || data.vertices.length) + ' 顶点');
-      }
-    })
-    .catch(function(err) {
-      document.getElementById('loadingOverlay').style.display = 'none';
-      setStatus(false, '请求失败');
-      alert('请求失败: ' + err.message);
-    });
-  });
-
-  canvas.addEventListener('click', function(event) {
-    if (!currentSurface || !currentEquation) return;
-
-    var rect = canvas.getBoundingClientRect();
-    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-    raycaster.setFromCamera(mouse, camera);
-    var targets = getRaycastTargets();
-    var intersects = raycaster.intersectObjects(targets, true);
-
-    if (intersects.length > 0) {
-      var point = intersects[0].point;
-      addProbeMarker(point);
-
-      fetch(API_BASE + '/api/probe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          equation: currentEquation,
-          x: point.x,
-          y: point.y,
-          z: point.z
-        })
-      })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.error) {
-          setStatus(false, '探测失败: ' + data.error);
-          return;
-        }
-        document.getElementById('probeEmpty').style.display = 'none';
-        document.getElementById('probeResult').style.display = 'block';
-        document.getElementById('probeCoord').textContent =
-          '(' + point.x.toFixed(4) + ', ' + point.y.toFixed(4) + ', ' + point.z.toFixed(4) + ')';
-        document.getElementById('probeResidual').textContent = data.residual.toExponential(4);
-        var g = data.gradient;
-        document.getElementById('probeGradient').textContent =
-          '(' + g[0].toFixed(4) + ', ' + g[1].toFixed(4) + ', ' + g[2].toFixed(4) + ')';
-
-        addGradientArrow(point, g);
-        setStatus(false, '探测完成 · 残差 = ' + data.residual.toExponential(4));
-      })
-      .catch(function(err) {
-        setStatus(false, '探测请求失败');
-      });
-    }
-  });
-
-  document.getElementById('clearProbeBtn').addEventListener('click', function() {
-    removeProbe();
-    if (currentSurface) {
-      setStatus(false, '探针已清除');
-    } else {
-      setStatus(false, '就绪');
-    }
-  });
-
-  document.getElementById('equation').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') {
-      document.getElementById('generateBtn').click();
-    }
+  ['sEquation', 'eEq1', 'eEq2'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('keydown', function(e) { if (e.key === 'Enter' && currentMode === 'static' && id === 'sEquation') document.getElementById('sGenerateBtn').click(); });
   });
 })();
 </script>

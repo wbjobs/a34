@@ -1,5 +1,10 @@
 import json
+import time
+import hashlib
+import threading
 import numpy as np
+from functools import lru_cache
+from collections import OrderedDict
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from sympy import sympify, symbols, lambdify, Matrix
@@ -376,6 +381,284 @@ def api_probe():
         return jsonify({"error": f"探测计算失败: {str(e)}"}), 500
 
     return jsonify(result)
+
+
+# ============================================================
+# 方程演化动画系统
+# ============================================================
+
+_evolve_sessions = {}
+_evolve_lock = threading.Lock()
+_MAX_EVOLVE_SESSIONS = 5
+_MAX_FRAME_CACHE_PER_SESSION = 101
+
+
+def _frame_cache():
+    return OrderedDict()
+
+
+def _get_union_bbox(expr1, expr2, x_range, y_range, z_range, base_res=24):
+    xs = np.linspace(x_range[0], x_range[1], base_res)
+    ys = np.linspace(y_range[0], y_range[1], base_res)
+    zs = np.linspace(z_range[0], z_range[1], base_res)
+
+    bboxes = []
+    for expr in (expr1, expr2):
+        F = _eval_volume(expr, xs, ys, zs)
+        mesh = _run_mc(F, xs, ys, zs)
+        if mesh is not None and len(mesh["vertices"]) > 0:
+            vmin = mesh["vertices"].min(axis=0)
+            vmax = mesh["vertices"].max(axis=0)
+            bboxes.append((vmin, vmax))
+
+    if not bboxes:
+        return (x_range[0], x_range[1], y_range[0], y_range[1], z_range[0], z_range[1])
+
+    span_x = x_range[1] - x_range[0]
+    span_y = y_range[1] - y_range[0]
+    span_z = z_range[1] - z_range[0]
+    mr = 0.1
+
+    gvmin = np.min([b[0] for b in bboxes], axis=0)
+    gvmax = np.max([b[1] for b in bboxes], axis=0)
+
+    return (
+        max(x_range[0], gvmin[0] - span_x * mr),
+        min(x_range[1], gvmax[0] + span_x * mr),
+        max(y_range[0], gvmin[1] - span_y * mr),
+        min(y_range[1], gvmax[1] + span_y * mr),
+        max(z_range[0], gvmin[2] - span_z * mr),
+        min(z_range[1], gvmax[2] + span_z * mr),
+    )
+
+
+def _compute_resolutions(bbox, target_res):
+    lx0, lx1, ly0, ly1, lz0, lz1 = bbox
+    sx = max(1e-6, lx1 - lx0)
+    sy = max(1e-6, ly1 - ly0)
+    sz = max(1e-6, lz1 - lz0)
+    gspan = max(sx, sy, sz)
+    step = gspan / max(20.0, target_res)
+    nx = max(16, int(sx / step))
+    ny = max(16, int(sy / step))
+    nz = max(16, int(sz / step))
+    total = nx * ny * nz
+    if total > MAX_TOTAL_VOLUME_POINTS:
+        scale = (MAX_TOTAL_VOLUME_POINTS / total) ** (1.0 / 3.0)
+        nx = max(12, int(nx * scale))
+        ny = max(12, int(ny * scale))
+        nz = max(12, int(nz * scale))
+    return nx, ny, nz
+
+
+def _session_key(eq1, eq2, xr, yr, zr, res):
+    raw = f"{eq1}|{eq2}|{xr}|{yr}|{zr}|{res}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _trim_sessions():
+    if len(_evolve_sessions) <= _MAX_EVOLVE_SESSIONS:
+        return
+    oldest = sorted(_evolve_sessions.keys(), key=lambda k: _evolve_sessions[k].get("last_used", 0))
+    for k in oldest[: len(_evolve_sessions) - _MAX_EVOLVE_SESSIONS]:
+        del _evolve_sessions[k]
+
+
+def _evolve_precompute_worker(sid, expr1_str, expr2_str, x_range, y_range, z_range, resolution):
+    try:
+        expr1 = parse_equation(expr1_str)
+        expr2 = parse_equation(expr2_str)
+
+        with _evolve_lock:
+            _evolve_sessions[sid]["status"] = "computing_bbox"
+            _evolve_sessions[sid]["progress"] = 0.1
+
+        bbox = _get_union_bbox(expr1, expr2, x_range, y_range, z_range)
+        nx, ny, nz = _compute_resolutions(bbox, resolution)
+
+        lx0, lx1, ly0, ly1, lz0, lz1 = bbox
+        xs = np.linspace(lx0, lx1, nx)
+        ys = np.linspace(ly0, ly1, ny)
+        zs = np.linspace(lz0, lz1, nz)
+
+        with _evolve_lock:
+            _evolve_sessions[sid]["status"] = "computing_F1"
+            _evolve_sessions[sid]["progress"] = 0.3
+            _evolve_sessions[sid]["bbox"] = [float(v) for v in bbox]
+            _evolve_sessions[sid]["grid_size"] = [int(nx), int(ny), int(nz)]
+
+        F1 = _eval_volume(expr1, xs, ys, zs)
+
+        with _evolve_lock:
+            _evolve_sessions[sid]["status"] = "computing_F2"
+            _evolve_sessions[sid]["progress"] = 0.65
+
+        F2 = _eval_volume(expr2, xs, ys, zs)
+
+        with _evolve_lock:
+            _evolve_sessions[sid]["F1"] = F1
+            _evolve_sessions[sid]["F2"] = F2
+            _evolve_sessions[sid]["xs"] = xs
+            _evolve_sessions[sid]["ys"] = ys
+            _evolve_sessions[sid]["zs"] = zs
+            _evolve_sessions[sid]["expr1"] = expr1_str
+            _evolve_sessions[sid]["expr2"] = expr2_str
+            _evolve_sessions[sid]["status"] = "ready"
+            _evolve_sessions[sid]["progress"] = 1.0
+            _evolve_sessions[sid]["frame_cache"] = _frame_cache()
+            _evolve_sessions[sid]["last_used"] = time.time()
+
+    except Exception as e:
+        with _evolve_lock:
+            if sid in _evolve_sessions:
+                _evolve_sessions[sid]["status"] = "error"
+                _evolve_sessions[sid]["error"] = str(e)
+
+
+def _mesh_from_blended(F1, F2, t, xs, ys, zs):
+    F = (1.0 - t) * F1 + t * F2
+    mesh = _run_mc(F, xs, ys, zs)
+    if mesh is None or len(mesh["vertices"]) == 0:
+        return None
+    verts = mesh["vertices"]
+    if len(verts) > MAX_VERTS_PER_MESH:
+        return None
+    return mesh
+
+
+@app.route("/api/evolve/init", methods=["POST"])
+def api_evolve_init():
+    data = request.get_json()
+    eq1 = data.get("equation1", "x**2 + y**2 + z**2 - 4")
+    eq2 = data.get("equation2", "x**2 + y**2 - z**2 - 1")
+    x_range = tuple(data.get("x_range", [-5, 5]))
+    y_range = tuple(data.get("y_range", [-5, 5]))
+    z_range = tuple(data.get("z_range", [-5, 5]))
+    resolution = int(data.get("resolution", 50))
+
+    try:
+        parse_equation(eq1)
+        parse_equation(eq2)
+    except Exception as e:
+        return jsonify({"error": f"方程解析失败: {str(e)}"}), 400
+
+    sid = _session_key(eq1, eq2, x_range, y_range, z_range, resolution)
+
+    with _evolve_lock:
+        _trim_sessions()
+        if sid in _evolve_sessions:
+            s = _evolve_sessions[sid]
+            s["last_used"] = time.time()
+            if s["status"] == "ready" or s["status"] == "error":
+                return jsonify({"session_id": sid, "status": s["status"]})
+            return jsonify({"session_id": sid, "status": s["status"]})
+
+        _evolve_sessions[sid] = {
+            "status": "starting",
+            "progress": 0.0,
+            "created_at": time.time(),
+            "last_used": time.time(),
+        }
+
+    t = threading.Thread(
+        target=_evolve_precompute_worker,
+        args=(sid, eq1, eq2, x_range, y_range, z_range, resolution),
+        daemon=True,
+    )
+    t.start()
+
+    return jsonify({"session_id": sid, "status": "starting"})
+
+
+@app.route("/api/evolve/status", methods=["GET"])
+def api_evolve_status():
+    sid = request.args.get("session_id", "")
+    with _evolve_lock:
+        if sid not in _evolve_sessions:
+            return jsonify({"error": "会话不存在"}), 404
+        s = _evolve_sessions[sid]
+        s["last_used"] = time.time()
+        out = {"status": s["status"], "progress": float(s.get("progress", 0.0))}
+        if s.get("error"):
+            out["error"] = s["error"]
+        if s.get("bbox"):
+            out["bbox"] = s["bbox"]
+        if s.get("grid_size"):
+            out["grid_size"] = s["grid_size"]
+        if s.get("frame_cache") is not None:
+            out["cached_frames"] = len(s["frame_cache"])
+        return jsonify(out)
+
+
+@app.route("/api/evolve/frame", methods=["GET"])
+def api_evolve_frame():
+    sid = request.args.get("session_id", "")
+    try:
+        t = float(request.args.get("t", "0.0"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "无效的 t 值"}), 400
+    t = max(0.0, min(1.0, t))
+    t_key = round(t, 3)
+
+    with _evolve_lock:
+        if sid not in _evolve_sessions:
+            return jsonify({"error": "会话不存在"}), 404
+        s = _evolve_sessions[sid]
+        s["last_used"] = time.time()
+        if s["status"] != "ready":
+            return jsonify({"error": f"会话未就绪，当前状态: {s['status']}"}), 400
+
+        cache = s["frame_cache"]
+        if t_key in cache:
+            cached = cache[t_key]
+            cache.move_to_end(t_key)
+            return jsonify(cached)
+
+        F1 = s["F1"]
+        F2 = s["F2"]
+        xs = s["xs"]
+        ys = s["ys"]
+        zs = s["zs"]
+
+    mesh = _mesh_from_blended(F1, F2, t, xs, ys, zs)
+    if mesh is None:
+        return jsonify({"vertices": [], "faces": [], "normals": [], "t": t_key, "vertex_count": 0, "face_count": 0})
+
+    result = {
+        "vertices": mesh["vertices"].tolist(),
+        "faces": mesh["faces"].tolist(),
+        "normals": mesh["normals"].tolist(),
+        "t": t_key,
+        "vertex_count": int(len(mesh["vertices"])),
+        "face_count": int(len(mesh["faces"])),
+    }
+
+    with _evolve_lock:
+        if sid in _evolve_sessions:
+            cache = _evolve_sessions[sid]["frame_cache"]
+            cache[t_key] = result
+            if len(cache) > _MAX_FRAME_CACHE_PER_SESSION:
+                cache.popitem(last=False)
+
+    return jsonify(result)
+
+
+@app.route("/api/evolve/equation", methods=["GET"])
+def api_evolve_equation():
+    try:
+        t = float(request.args.get("t", "0.0"))
+    except (TypeError, ValueError):
+        t = 0.0
+    t = max(0.0, min(1.0, t))
+    eq1 = request.args.get("eq1", "F1")
+    eq2 = request.args.get("eq2", "F2")
+    if t == 0.0:
+        blended = eq1
+    elif t == 1.0:
+        blended = eq2
+    else:
+        blended = f"({1-t:.3f})*({eq1}) + ({t:.3f})*({eq2})"
+    return jsonify({"equation": blended, "t": t})
 
 
 if __name__ == "__main__":
