@@ -10,6 +10,7 @@
     --bg: #0d1117; --panel: #161b22; --border: #30363d;
     --fg: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
     --accent2: #f78166; --success: #3fb950; --card: #1c2128;
+    --warn: #d29922; --danger: #f85149;
   }
   body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--fg); height: 100vh; overflow: hidden; display: flex; }
 
@@ -96,7 +97,7 @@
   .loading-overlay {
     position: absolute; top: 0; left: 0; right: 0; bottom: 0;
     background: rgba(13,17,23,0.7); display: none; justify-content: center;
-    align-items: center; z-index: 50;
+    align-items: center; z-index: 50; flex-direction: column; gap: 12px;
   }
   .spinner {
     width: 40px; height: 40px; border: 3px solid var(--border);
@@ -104,6 +105,8 @@
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 13px; color: var(--muted); }
+  .loading-sub { font-size: 11px; color: var(--muted); opacity: 0.7; }
 
   .equation-display {
     background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
@@ -121,6 +124,58 @@
     background: var(--accent); cursor: pointer;
   }
   .slider-val { font-size: 12px; color: var(--muted); min-width: 30px; text-align: right; }
+
+  .perf-box {
+    position: absolute; top: 16px; right: 16px;
+    background: rgba(22,27,34,0.85); backdrop-filter: blur(8px);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; font-size: 11px; font-family: 'Consolas', monospace;
+    color: var(--muted); pointer-events: none; z-index: 20;
+  }
+  .perf-row { display: flex; justify-content: space-between; gap: 16px; padding: 1px 0; }
+  .perf-row span:last-child { color: var(--fg); }
+  .perf-row .warn { color: var(--warn); }
+  .perf-row .danger { color: var(--danger); }
+  .perf-row .ok { color: var(--success); }
+  .lod-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px;
+    font-weight: 700; text-transform: uppercase;
+  }
+  .lod-badge.low { background: var(--danger); color: #fff; }
+  .lod-badge.medium { background: var(--warn); color: #000; }
+  .lod-badge.high { background: var(--success); color: #000; }
+
+  .warning-banner {
+    background: rgba(210,153,34,0.1); border: 1px solid var(--warn);
+    border-radius: 6px; padding: 8px 10px; font-size: 11px;
+    color: var(--warn); margin-top: 8px; display: none;
+  }
+  .warning-banner.show { display: block; }
+
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+  .toggle-label { font-size: 12px; color: var(--muted); }
+  .switch { position: relative; width: 36px; height: 20px; display: inline-block; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider-sw {
+    position: absolute; cursor: pointer; inset: 0; background: var(--border);
+    border-radius: 20px; transition: 0.2s;
+  }
+  .slider-sw:before {
+    position: absolute; content: ""; height: 14px; width: 14px; left: 3px; top: 3px;
+    background: white; border-radius: 50%; transition: 0.2s;
+  }
+  .switch input:checked + .slider-sw { background: var(--accent); }
+  .switch input:checked + .slider-sw:before { transform: translateX(16px); }
+
+  .stats-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px;
+  }
+  .stat-card {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px;
+  }
+  .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-val { font-size: 14px; font-family: 'Consolas', monospace; font-weight: 600; margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -128,7 +183,7 @@
 <div class="sidebar">
   <div class="logo">
     <h1>⬡ Implicit Surface Explorer</h1>
-    <p>基于符号计算的隐式方程三维曲面绘制与参数探针</p>
+    <p>基于符号计算 · 自适应采样 · LOD 实时渲染</p>
   </div>
 
   <div class="section">
@@ -159,6 +214,14 @@
       <input type="range" id="resolution" min="20" max="120" value="60" />
       <span class="slider-val" id="resVal">60</span>
     </div>
+    <div class="warning-banner" id="warningBanner">⚠ 该方程计算量较大，已启用自适应采样防止内存溢出</div>
+    <div class="toggle-row">
+      <span class="toggle-label">启用 LOD 细节层次</span>
+      <label class="switch">
+        <input type="checkbox" id="lodToggle" checked />
+        <span class="slider-sw"></span>
+      </label>
+    </div>
     <button class="btn btn-primary" id="generateBtn">⟳ 生成曲面</button>
   </div>
 
@@ -188,6 +251,28 @@
     <button class="btn" style="background:var(--card);color:var(--fg);border:1px solid var(--border);margin-top:8px" id="clearProbeBtn">✕ 清除探针</button>
   </div>
 
+  <div class="section">
+    <div class="section-title">网格统计</div>
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-card">
+        <div class="stat-label">顶点数</div>
+        <div class="stat-val" id="statVerts">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">三角面数</div>
+        <div class="stat-val" id="statFaces">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">LOD 级别</div>
+        <div class="stat-val" id="statLod"><span class="lod-badge medium">AUTO</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">显存估计</div>
+        <div class="stat-val" id="statMem">-</div>
+      </div>
+    </div>
+  </div>
+
   <div class="status-bar">
     <span class="status-dot ready" id="statusDot"></span>
     <span id="statusText">就绪</span>
@@ -196,15 +281,25 @@
 
 <div class="viewport">
   <canvas id="canvas3d"></canvas>
+  <div class="perf-box" id="perfBox">
+    <div class="perf-row"><span>FPS</span><span id="perfFps" class="ok">0</span></div>
+    <div class="perf-row"><span>帧时</span><span id="perfFrame">0 ms</span></div>
+    <div class="perf-row"><span>相机距离</span><span id="perfDist">0</span></div>
+    <div class="perf-row"><span>当前 LOD</span><span id="perfLod">-</span></div>
+    <div class="perf-row"><span>绘制调用</span><span id="perfDraws">0</span></div>
+  </div>
   <div class="overlay-hint" id="hint">🖱 左键旋转 · 右键平移 · 滚轮缩放 · 点击曲面探测</div>
   <div class="tooltip" id="tooltip"></div>
   <div class="loading-overlay" id="loadingOverlay">
     <div class="spinner"></div>
+    <div class="loading-text" id="loadingText">正在生成曲面...</div>
+    <div class="loading-sub" id="loadingSub">自适应采样中</div>
   </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/objects/LOD.js"></script>
 <script>
 (function() {
   var API_BASE = '';
@@ -213,6 +308,7 @@
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setClearColor(0x0d1117, 1);
   renderer.shadowMap.enabled = true;
+  renderer.info.autoReset = true;
 
   var scene = new THREE.Scene();
   var camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
@@ -239,12 +335,19 @@
   var axesHelper = new THREE.AxesHelper(8);
   scene.add(axesHelper);
 
-  var currentMesh = null;
+  var currentSurface = null;
+  var lodEnabled = true;
   var probeMarker = null;
   var probeArrow = null;
   var currentEquation = '';
   var raycaster = new THREE.Raycaster();
   var mouse = new THREE.Vector2();
+
+  var lastFrame = performance.now();
+  var fpsFrames = 0;
+  var fpsAccum = 0;
+  var currentLodLevel = 'high';
+  var meshStats = null;
 
   function onResize() {
     var rect = canvas.parentElement.getBoundingClientRect();
@@ -261,7 +364,40 @@
 
   function animate() {
     requestAnimationFrame(animate);
+    var now = performance.now();
+    var delta = now - lastFrame;
+    lastFrame = now;
+    fpsAccum += delta;
+    fpsFrames++;
+    if (fpsAccum >= 500) {
+      var fps = 1000 / (fpsAccum / fpsFrames);
+      var fpsEl = document.getElementById('perfFps');
+      fpsEl.textContent = fps.toFixed(0);
+      fpsEl.className = fps >= 50 ? 'ok' : (fps >= 30 ? 'warn' : 'danger');
+      document.getElementById('perfFrame').textContent = (fpsAccum / fpsFrames).toFixed(1) + ' ms';
+      fpsAccum = 0;
+      fpsFrames = 0;
+      document.getElementById('perfDraws').textContent = renderer.info.render.calls;
+    }
+
     controls.update();
+
+    if (currentSurface && lodEnabled && currentSurface.isLOD) {
+      currentSurface.update(camera);
+      var lvl = currentSurface.getCurrentLevel();
+      var lvlName = 'high';
+      if (lvl === 0) lvlName = 'low';
+      else if (lvl === 1) lvlName = 'medium';
+      if (lvlName !== currentLodLevel) {
+        currentLodLevel = lvlName;
+        updateLodBadge(lvlName);
+        document.getElementById('perfLod').textContent = lvlName.toUpperCase();
+      }
+    }
+
+    var dist = camera.position.length();
+    document.getElementById('perfDist').textContent = dist.toFixed(1);
+
     renderer.render(scene, camera);
   }
   animate();
@@ -273,13 +409,24 @@
     txt.textContent = text;
   }
 
-  function removeMesh() {
-    if (currentMesh) {
-      scene.remove(currentMesh);
-      currentMesh.geometry.dispose();
-      currentMesh.material.dispose();
-      currentMesh = null;
+  function removeSurface() {
+    if (currentSurface) {
+      var disposeObj = function(obj) {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) obj.material.forEach(function(m) { m.dispose(); });
+          else obj.material.dispose();
+        }
+      };
+      if (currentSurface.isLOD) {
+        currentSurface.levels.forEach(function(l) { disposeObj(l.object); });
+      } else {
+        disposeObj(currentSurface);
+      }
+      scene.remove(currentSurface);
+      currentSurface = null;
     }
+    currentLodLevel = 'high';
   }
 
   function removeProbe() {
@@ -289,12 +436,10 @@
     document.getElementById('probeEmpty').style.display = 'block';
   }
 
-  function buildMesh(data) {
-    removeMesh();
+  function buildGeometry(data) {
     var verts = data.vertices;
     var faces = data.faces;
     var normals = data.normals;
-
     var geometry = new THREE.BufferGeometry();
     var positions = new Float32Array(faces.length * 9);
     var normalArr = new Float32Array(faces.length * 9);
@@ -316,27 +461,112 @@
 
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(normalArr, 3));
+    geometry.computeBoundingSphere();
+    return geometry;
+  }
 
-    var material = new THREE.MeshPhongMaterial({
+  function buildMaterial(opacity) {
+    return new THREE.MeshPhongMaterial({
       color: 0x58a6ff,
       shininess: 60,
       transparent: true,
-      opacity: 0.82,
+      opacity: opacity,
       side: THREE.DoubleSide,
       specular: 0x222244
     });
+  }
 
-    currentMesh = new THREE.Mesh(geometry, material);
-    scene.add(currentMesh);
-
+  function buildWireMesh(geometry, opacity) {
     var wireMat = new THREE.MeshBasicMaterial({
       color: 0x1c2128,
       wireframe: true,
       transparent: true,
-      opacity: 0.08
+      opacity: opacity
     });
-    var wireMesh = new THREE.Mesh(geometry.clone(), wireMat);
-    currentMesh.add(wireMesh);
+    return new THREE.Mesh(geometry, wireMat);
+  }
+
+  function buildSingleMesh(data) {
+    removeSurface();
+    var geometry = buildGeometry(data);
+    var material = buildMaterial(0.82);
+    var mesh = new THREE.Mesh(geometry, material);
+    mesh.add(buildWireMesh(geometry, 0.08));
+    scene.add(mesh);
+    currentSurface = mesh;
+    currentLodLevel = 'high';
+    updateStats({ high: data });
+  }
+
+  function buildLodMeshes(lodData) {
+    removeSurface();
+    lodEnabled = document.getElementById('lodToggle').checked;
+
+    if (!lodEnabled || !lodData.low || !lodData.medium) {
+      buildSingleMesh(lodData.high);
+      return;
+    }
+
+    var lod = new THREE.LOD();
+
+    var geoLow = buildGeometry(lodData.low);
+    var matLow = buildMaterial(0.8);
+    var meshLow = new THREE.Mesh(geoLow, matLow);
+    meshLow.add(buildWireMesh(geoLow, 0.05));
+
+    var geoMed = buildGeometry(lodData.medium);
+    var matMed = buildMaterial(0.82);
+    var meshMed = new THREE.Mesh(geoMed, matMed);
+    meshMed.add(buildWireMesh(geoMed, 0.07));
+
+    var geoHigh = buildGeometry(lodData.high);
+    var matHigh = buildMaterial(0.85);
+    var meshHigh = new THREE.Mesh(geoHigh, matHigh);
+    meshHigh.add(buildWireMesh(geoHigh, 0.09));
+
+    var radius = Math.max(
+      (geoLow.boundingSphere && geoLow.boundingSphere.radius) || 5,
+      (geoHigh.boundingSphere && geoHigh.boundingSphere.radius) || 5
+    );
+    var dFar = radius * 8;
+    var dMid = radius * 4;
+
+    lod.addLevel(meshLow, dFar);
+    lod.addLevel(meshMed, dMid);
+    lod.addLevel(meshHigh, 0);
+
+    scene.add(lod);
+    currentSurface = lod;
+
+    updateStats(lodData);
+    setStatus(false, 'LOD 曲面已就绪 · 自动根据相机距离切换精度');
+  }
+
+  function updateStats(data) {
+    meshStats = data;
+    var hi = data.high;
+    var verts = hi.vertex_count !== undefined ? hi.vertex_count : hi.vertices.length;
+    var faces = hi.face_count !== undefined ? hi.face_count : hi.faces.length;
+    document.getElementById('statVerts').textContent = verts.toLocaleString();
+    document.getElementById('statFaces').textContent = faces.toLocaleString();
+    var memBytes = (verts * 3 * 4 + faces * 3 * 4) * (lodEnabled ? 2.5 : 1);
+    var memStr = memBytes < 1048576 ? (memBytes / 1024).toFixed(1) + ' KB'
+      : (memBytes / 1048576).toFixed(2) + ' MB';
+    document.getElementById('statMem').textContent = memStr;
+    updateLodBadge(currentLodLevel);
+  }
+
+  function updateLodBadge(lvl) {
+    var el = document.getElementById('statLod');
+    el.innerHTML = '<span class="lod-badge ' + lvl + '">' + (lodEnabled ? lvl : 'FIXED').toUpperCase() + '</span>';
+  }
+
+  function getRaycastTargets() {
+    if (!currentSurface) return [];
+    if (currentSurface.isLOD) {
+      return currentSurface.levels.map(function(l) { return l.object; });
+    }
+    return [currentSurface];
   }
 
   function addProbeMarker(point) {
@@ -366,6 +596,11 @@
 
   document.getElementById('resolution').addEventListener('input', function() {
     document.getElementById('resVal').textContent = this.value;
+    if (parseInt(this.value) > 80) {
+      document.getElementById('warningBanner').classList.add('show');
+    } else {
+      document.getElementById('warningBanner').classList.remove('show');
+    }
   });
 
   document.getElementById('arrowLen').addEventListener('input', function() {
@@ -377,11 +612,25 @@
     }
   });
 
+  document.getElementById('lodToggle').addEventListener('change', function() {
+    lodEnabled = this.checked;
+    if (meshStats && lodEnabled) {
+      buildLodMeshes(meshStats);
+    } else if (meshStats && !lodEnabled) {
+      buildSingleMesh(meshStats.high);
+    }
+  });
+
   document.querySelectorAll('.preset-chip').forEach(function(chip) {
     chip.addEventListener('click', function() {
       var eq = this.getAttribute('data-eq');
       document.getElementById('equation').value = eq;
       document.getElementById('eqDisplay').textContent = 'F(x,y,z) = ' + eq + ' = 0';
+      if (eq.indexOf('**4') !== -1 || eq.indexOf('*y') !== -1 || eq.length > 25) {
+        document.getElementById('warningBanner').classList.add('show');
+      } else {
+        document.getElementById('warningBanner').classList.remove('show');
+      }
     });
   });
 
@@ -395,11 +644,16 @@
     var yRange = [parseFloat(document.getElementById('yMin').value), parseFloat(document.getElementById('yMax').value)];
     var zRange = [parseFloat(document.getElementById('zMin').value), parseFloat(document.getElementById('zMax').value)];
     var resolution = parseInt(document.getElementById('resolution').value);
+    var useLod = document.getElementById('lodToggle').checked;
 
     document.getElementById('loadingOverlay').style.display = 'flex';
-    setStatus(true, '正在生成曲面...');
+    document.getElementById('loadingText').textContent = useLod ? '正在生成多级精度曲面...' : '正在生成曲面...';
+    document.getElementById('loadingSub').textContent = '自适应局部加密采样中';
+    setStatus(true, useLod ? '生成 LOD 三级精度网格中...' : '生成网格中...');
 
-    fetch(API_BASE + '/api/generate', {
+    var endpoint = useLod ? '/api/generate_lod' : '/api/generate';
+
+    fetch(API_BASE + endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -418,8 +672,16 @@
         alert(data.error);
         return;
       }
-      buildMesh(data);
-      setStatus(false, '曲面已生成 · ' + data.vertices.length + ' 顶点 · ' + data.faces.length + ' 面');
+      if (useLod) {
+        buildLodMeshes(data);
+        var l = data.low.vertex_count || data.low.vertices.length;
+        var m = data.medium.vertex_count || data.medium.vertices.length;
+        var h = data.high.vertex_count || data.high.vertices.length;
+        setStatus(false, 'LOD就绪 · L:' + l + ' M:' + m + ' H:' + h + ' 顶点');
+      } else {
+        buildSingleMesh(data);
+        setStatus(false, '曲面已生成 · ' + (data.vertex_count || data.vertices.length) + ' 顶点');
+      }
     })
     .catch(function(err) {
       document.getElementById('loadingOverlay').style.display = 'none';
@@ -429,14 +691,15 @@
   });
 
   canvas.addEventListener('click', function(event) {
-    if (!currentMesh || !currentEquation) return;
+    if (!currentSurface || !currentEquation) return;
 
     var rect = canvas.getBoundingClientRect();
     mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     raycaster.setFromCamera(mouse, camera);
-    var intersects = raycaster.intersectObject(currentMesh, true);
+    var targets = getRaycastTargets();
+    var intersects = raycaster.intersectObjects(targets, true);
 
     if (intersects.length > 0) {
       var point = intersects[0].point;
@@ -478,8 +741,8 @@
 
   document.getElementById('clearProbeBtn').addEventListener('click', function() {
     removeProbe();
-    if (currentMesh) {
-      setStatus(false, '曲面已生成 · 探针已清除');
+    if (currentSurface) {
+      setStatus(false, '探针已清除');
     } else {
       setStatus(false, '就绪');
     }
