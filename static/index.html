@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>隐式方程三维曲面 & 参数探针</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --fg: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+    --accent2: #f78166; --success: #3fb950; --card: #1c2128;
+  }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--fg); height: 100vh; overflow: hidden; display: flex; }
+
+  .sidebar {
+    width: 360px; min-width: 360px; background: var(--panel);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    overflow-y: auto; z-index: 10;
+  }
+  .sidebar::-webkit-scrollbar { width: 6px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .logo { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+  .logo h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
+  .logo p { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .section { padding: 16px 24px; border-bottom: 1px solid var(--border); }
+  .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 12px; }
+
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  input[type="text"], input[type="number"] {
+    width: 100%; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--fg); font-size: 14px; font-family: 'Consolas', 'Courier New', monospace;
+    outline: none; transition: border-color 0.2s;
+  }
+  input[type="text"]:focus, input[type="number"]:focus { border-color: var(--accent); }
+
+  .range-row { display: flex; gap: 8px; }
+  .range-row > div { flex: 1; }
+
+  .btn {
+    width: 100%; padding: 10px; border: none; border-radius: 6px; font-size: 14px;
+    font-weight: 600; cursor: pointer; transition: all 0.2s; margin-top: 8px;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #79c0ff; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .preset-chip {
+    padding: 4px 10px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; font-size: 11px; cursor: pointer; transition: all 0.2s;
+    font-family: 'Consolas', monospace;
+  }
+  .preset-chip:hover { border-color: var(--accent); color: var(--accent); }
+
+  .probe-result {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; margin-top: 8px;
+  }
+  .probe-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
+  .probe-label { font-size: 12px; color: var(--muted); }
+  .probe-value { font-size: 14px; font-family: 'Consolas', monospace; font-weight: 600; }
+  .probe-value.residual { color: var(--accent2); }
+  .probe-value.gradient { color: var(--success); }
+  .probe-value.coords { color: var(--accent); }
+
+  .status-bar {
+    padding: 12px 24px; border-top: 1px solid var(--border); margin-top: auto;
+    font-size: 11px; color: var(--muted);
+  }
+  .status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; }
+  .status-dot.ready { background: var(--success); }
+  .status-dot.loading { background: var(--accent2); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .viewport { flex: 1; position: relative; }
+  #canvas3d { width: 100%; height: 100%; display: block; }
+
+  .overlay-hint {
+    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: rgba(22,27,34,0.85); backdrop-filter: blur(8px);
+    padding: 8px 16px; border-radius: 8px; font-size: 12px; color: var(--muted);
+    border: 1px solid var(--border); pointer-events: none;
+  }
+
+  .tooltip {
+    position: absolute; background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px; font-size: 12px; pointer-events: none;
+    z-index: 100; display: none; backdrop-filter: blur(8px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+
+  .loading-overlay {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(13,17,23,0.7); display: none; justify-content: center;
+    align-items: center; z-index: 50;
+  }
+  .spinner {
+    width: 40px; height: 40px; border: 3px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .equation-display {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 12px; margin-top: 8px; font-family: 'Consolas', monospace;
+    font-size: 13px; color: var(--accent); word-break: break-all;
+  }
+
+  .slider-container { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .slider-container input[type="range"] {
+    flex: 1; -webkit-appearance: none; height: 4px; background: var(--border);
+    border-radius: 2px; outline: none;
+  }
+  .slider-container input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--accent); cursor: pointer;
+  }
+  .slider-val { font-size: 12px; color: var(--muted); min-width: 30px; text-align: right; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="logo">
+    <h1>⬡ Implicit Surface Explorer</h1>
+    <p>基于符号计算的隐式方程三维曲面绘制与参数探针</p>
+  </div>
+
+  <div class="section">
+    <div class="section-title">方程输入</div>
+    <label>隐式方程 F(x,y,z) = 0</label>
+    <input type="text" id="equation" value="sin(x) + cos(y) + z**2" placeholder="例如: x**2 + y**2 + z**2 - 4" />
+    <div class="equation-display" id="eqDisplay">F(x,y,z) = sin(x) + cos(y) + z**2 = 0</div>
+    <div class="section-title" style="margin-top:12px">预设方程</div>
+    <div class="presets">
+      <span class="preset-chip" data-eq="x**2 + y**2 + z**2 - 4">球面</span>
+      <span class="preset-chip" data-eq="x**2 + y**2 - z**2 - 1">双曲面</span>
+      <span class="preset-chip" data-eq="sin(x) + cos(y) + z**2">正余弦</span>
+      <span class="preset-chip" data-eq="x**4 + y**4 + z**4 - 16">超椭球</span>
+      <span class="preset-chip" data-eq="sin(x*y) + cos(y*z) + sin(z*x)">三角混合</span>
+      <span class="preset-chip" data-eq="x**2 - y**2 + z**2 - 1">鞍面</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">采样参数</div>
+    <div class="range-row">
+      <div><label>X 范围</label><input type="number" id="xMin" value="-5" /><input type="number" id="xMax" value="5" style="margin-top:4px" /></div>
+      <div><label>Y 范围</label><input type="number" id="yMin" value="-5" /><input type="number" id="yMax" value="5" style="margin-top:4px" /></div>
+      <div><label>Z 范围</label><input type="number" id="zMin" value="-5" /><input type="number" id="zMax" value="5" style="margin-top:4px" /></div>
+    </div>
+    <div class="slider-container" style="margin-top:12px">
+      <label style="margin:0;min-width:50px">分辨率</label>
+      <input type="range" id="resolution" min="20" max="120" value="60" />
+      <span class="slider-val" id="resVal">60</span>
+    </div>
+    <button class="btn btn-primary" id="generateBtn">⟳ 生成曲面</button>
+  </div>
+
+  <div class="section">
+    <div class="section-title">参数探针</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:8px">点击曲面上的点，查看该处的残差和梯度方向</p>
+    <div id="probeEmpty" style="font-size:12px;color:var(--muted);text-align:center;padding:16px 0">尚未探测任何点</div>
+    <div id="probeResult" class="probe-result" style="display:none">
+      <div class="probe-row">
+        <span class="probe-label">坐标</span>
+        <span class="probe-value coords" id="probeCoord">(0, 0, 0)</span>
+      </div>
+      <div class="probe-row">
+        <span class="probe-label">残差 F(x,y,z)</span>
+        <span class="probe-value residual" id="probeResidual">0</span>
+      </div>
+      <div class="probe-row">
+        <span class="probe-label">梯度方向 ∇F</span>
+        <span class="probe-value gradient" id="probeGradient">(0, 0, 0)</span>
+      </div>
+    </div>
+    <div class="slider-container" style="margin-top:8px">
+      <label style="margin:0;min-width:70px">箭头长度</label>
+      <input type="range" id="arrowLen" min="0.1" max="5" step="0.1" value="1.5" />
+      <span class="slider-val" id="arrowLenVal">1.5</span>
+    </div>
+    <button class="btn" style="background:var(--card);color:var(--fg);border:1px solid var(--border);margin-top:8px" id="clearProbeBtn">✕ 清除探针</button>
+  </div>
+
+  <div class="status-bar">
+    <span class="status-dot ready" id="statusDot"></span>
+    <span id="statusText">就绪</span>
+  </div>
+</div>
+
+<div class="viewport">
+  <canvas id="canvas3d"></canvas>
+  <div class="overlay-hint" id="hint">🖱 左键旋转 · 右键平移 · 滚轮缩放 · 点击曲面探测</div>
+  <div class="tooltip" id="tooltip"></div>
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function() {
+  var API_BASE = '';
+  var canvas = document.getElementById('canvas3d');
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setClearColor(0x0d1117, 1);
+  renderer.shadowMap.enabled = true;
+
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
+  camera.position.set(8, 6, 8);
+
+  var controls = new THREE.OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.minDistance = 2;
+  controls.maxDistance = 50;
+
+  var ambientLight = new THREE.AmbientLight(0x404060, 0.6);
+  scene.add(ambientLight);
+  var dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+  dirLight1.position.set(5, 10, 7);
+  scene.add(dirLight1);
+  var dirLight2 = new THREE.DirectionalLight(0x58a6ff, 0.3);
+  dirLight2.position.set(-5, -3, -5);
+  scene.add(dirLight2);
+
+  var gridHelper = new THREE.GridHelper(20, 20, 0x30363d, 0x1c2128);
+  scene.add(gridHelper);
+
+  var axesHelper = new THREE.AxesHelper(8);
+  scene.add(axesHelper);
+
+  var currentMesh = null;
+  var probeMarker = null;
+  var probeArrow = null;
+  var currentEquation = '';
+  var raycaster = new THREE.Raycaster();
+  var mouse = new THREE.Vector2();
+
+  function onResize() {
+    var rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    renderer.setSize(rect.width, rect.height);
+    camera.aspect = rect.width / rect.height;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', onResize);
+  onResize();
+
+  function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  function setStatus(loading, text) {
+    var dot = document.getElementById('statusDot');
+    var txt = document.getElementById('statusText');
+    dot.className = 'status-dot ' + (loading ? 'loading' : 'ready');
+    txt.textContent = text;
+  }
+
+  function removeMesh() {
+    if (currentMesh) {
+      scene.remove(currentMesh);
+      currentMesh.geometry.dispose();
+      currentMesh.material.dispose();
+      currentMesh = null;
+    }
+  }
+
+  function removeProbe() {
+    if (probeMarker) { scene.remove(probeMarker); probeMarker = null; }
+    if (probeArrow) { scene.remove(probeArrow); probeArrow = null; }
+    document.getElementById('probeResult').style.display = 'none';
+    document.getElementById('probeEmpty').style.display = 'block';
+  }
+
+  function buildMesh(data) {
+    removeMesh();
+    var verts = data.vertices;
+    var faces = data.faces;
+    var normals = data.normals;
+
+    var geometry = new THREE.BufferGeometry();
+    var positions = new Float32Array(faces.length * 9);
+    var normalArr = new Float32Array(faces.length * 9);
+
+    for (var i = 0; i < faces.length; i++) {
+      var f = faces[i];
+      for (var j = 0; j < 3; j++) {
+        var vi = f[j];
+        positions[i * 9 + j * 3 + 0] = verts[vi][0];
+        positions[i * 9 + j * 3 + 1] = verts[vi][1];
+        positions[i * 9 + j * 3 + 2] = verts[vi][2];
+        if (normals && normals.length > vi) {
+          normalArr[i * 9 + j * 3 + 0] = normals[vi][0];
+          normalArr[i * 9 + j * 3 + 1] = normals[vi][1];
+          normalArr[i * 9 + j * 3 + 2] = normals[vi][2];
+        }
+      }
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(normalArr, 3));
+
+    var material = new THREE.MeshPhongMaterial({
+      color: 0x58a6ff,
+      shininess: 60,
+      transparent: true,
+      opacity: 0.82,
+      side: THREE.DoubleSide,
+      specular: 0x222244
+    });
+
+    currentMesh = new THREE.Mesh(geometry, material);
+    scene.add(currentMesh);
+
+    var wireMat = new THREE.MeshBasicMaterial({
+      color: 0x1c2128,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.08
+    });
+    var wireMesh = new THREE.Mesh(geometry.clone(), wireMat);
+    currentMesh.add(wireMesh);
+  }
+
+  function addProbeMarker(point) {
+    if (probeMarker) scene.remove(probeMarker);
+    var geo = new THREE.SphereGeometry(0.08, 16, 16);
+    var mat = new THREE.MeshBasicMaterial({ color: 0xf78166 });
+    probeMarker = new THREE.Mesh(geo, mat);
+    probeMarker.position.copy(point);
+    scene.add(probeMarker);
+  }
+
+  function addGradientArrow(origin, direction) {
+    if (probeArrow) scene.remove(probeArrow);
+    var len = parseFloat(document.getElementById('arrowLen').value);
+    var dir = new THREE.Vector3(direction[0], direction[1], direction[2]).normalize();
+    var arrowLen = Math.max(0.1, len);
+    var arrowColor = 0x3fb950;
+    var arrow = new THREE.ArrowHelper(dir, origin, arrowLen, arrowColor, arrowLen * 0.2, arrowLen * 0.1);
+    probeArrow = arrow;
+    scene.add(probeArrow);
+  }
+
+  document.getElementById('equation').addEventListener('input', function() {
+    var eq = this.value.trim();
+    document.getElementById('eqDisplay').textContent = 'F(x,y,z) = ' + eq + ' = 0';
+  });
+
+  document.getElementById('resolution').addEventListener('input', function() {
+    document.getElementById('resVal').textContent = this.value;
+  });
+
+  document.getElementById('arrowLen').addEventListener('input', function() {
+    document.getElementById('arrowLenVal').textContent = this.value;
+    if (probeArrow && probeMarker) {
+      var dir = probeArrow.direction.clone();
+      var origin = probeMarker.position.clone();
+      addGradientArrow(origin, [dir.x, dir.y, dir.z]);
+    }
+  });
+
+  document.querySelectorAll('.preset-chip').forEach(function(chip) {
+    chip.addEventListener('click', function() {
+      var eq = this.getAttribute('data-eq');
+      document.getElementById('equation').value = eq;
+      document.getElementById('eqDisplay').textContent = 'F(x,y,z) = ' + eq + ' = 0';
+    });
+  });
+
+  document.getElementById('generateBtn').addEventListener('click', function() {
+    var eq = document.getElementById('equation').value.trim();
+    if (!eq) return;
+    currentEquation = eq;
+    removeProbe();
+
+    var xRange = [parseFloat(document.getElementById('xMin').value), parseFloat(document.getElementById('xMax').value)];
+    var yRange = [parseFloat(document.getElementById('yMin').value), parseFloat(document.getElementById('yMax').value)];
+    var zRange = [parseFloat(document.getElementById('zMin').value), parseFloat(document.getElementById('zMax').value)];
+    var resolution = parseInt(document.getElementById('resolution').value);
+
+    document.getElementById('loadingOverlay').style.display = 'flex';
+    setStatus(true, '正在生成曲面...');
+
+    fetch(API_BASE + '/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        equation: eq,
+        x_range: xRange,
+        y_range: yRange,
+        z_range: zRange,
+        resolution: resolution
+      })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      document.getElementById('loadingOverlay').style.display = 'none';
+      if (data.error) {
+        setStatus(false, '错误: ' + data.error);
+        alert(data.error);
+        return;
+      }
+      buildMesh(data);
+      setStatus(false, '曲面已生成 · ' + data.vertices.length + ' 顶点 · ' + data.faces.length + ' 面');
+    })
+    .catch(function(err) {
+      document.getElementById('loadingOverlay').style.display = 'none';
+      setStatus(false, '请求失败');
+      alert('请求失败: ' + err.message);
+    });
+  });
+
+  canvas.addEventListener('click', function(event) {
+    if (!currentMesh || !currentEquation) return;
+
+    var rect = canvas.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+    var intersects = raycaster.intersectObject(currentMesh, true);
+
+    if (intersects.length > 0) {
+      var point = intersects[0].point;
+      addProbeMarker(point);
+
+      fetch(API_BASE + '/api/probe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          equation: currentEquation,
+          x: point.x,
+          y: point.y,
+          z: point.z
+        })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) {
+          setStatus(false, '探测失败: ' + data.error);
+          return;
+        }
+        document.getElementById('probeEmpty').style.display = 'none';
+        document.getElementById('probeResult').style.display = 'block';
+        document.getElementById('probeCoord').textContent =
+          '(' + point.x.toFixed(4) + ', ' + point.y.toFixed(4) + ', ' + point.z.toFixed(4) + ')';
+        document.getElementById('probeResidual').textContent = data.residual.toExponential(4);
+        var g = data.gradient;
+        document.getElementById('probeGradient').textContent =
+          '(' + g[0].toFixed(4) + ', ' + g[1].toFixed(4) + ', ' + g[2].toFixed(4) + ')';
+
+        addGradientArrow(point, g);
+        setStatus(false, '探测完成 · 残差 = ' + data.residual.toExponential(4));
+      })
+      .catch(function(err) {
+        setStatus(false, '探测请求失败');
+      });
+    }
+  });
+
+  document.getElementById('clearProbeBtn').addEventListener('click', function() {
+    removeProbe();
+    if (currentMesh) {
+      setStatus(false, '曲面已生成 · 探针已清除');
+    } else {
+      setStatus(false, '就绪');
+    }
+  });
+
+  document.getElementById('equation').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+      document.getElementById('generateBtn').click();
+    }
+  });
+})();
+</script>
+</body>
+</html>
